@@ -1,3 +1,19 @@
+function installSafeD3AttrGuard(){
+    if(typeof d3 === "undefined" || !d3.selection || d3.selection.prototype._tvbotSafeAttrGuard)return
+    const originalAttr = d3.selection.prototype.attr
+    const validSvgAttrName = /^[A-Za-z_][A-Za-z0-9_.:-]*$/
+    d3.selection.prototype.attr = function(name, value){
+        if(typeof name === "string" && !validSvgAttrName.test(name)){
+            console.warn("TVBOT skipped invalid SVG attribute name:", name)
+            return arguments.length === 1 ? undefined : this
+        }
+        return originalAttr.apply(this, arguments)
+    }
+    d3.selection.prototype._tvbotSafeAttrGuard = true
+}
+
+installSafeD3AttrGuard()
+
 let layer_component_T = `<div id="data-layer-container">
         <div id="layer-container-header" class="xiaochi-background">
             <div id="hide-layer-container-btn" :class="{'cuIcon-unfold': isDataLayerContainerShow,'cuIcon-fold':!isDataLayerContainerShow}"  @click="hideLayerContainer"></div>
@@ -11,7 +27,7 @@ let layer_component_T = `<div id="data-layer-container">
                        <img style="height: 26px;" :src="'/static/xiaochiPlot/img/icon/'+ ldf.fileType +'.png'">
                    </div>
                    <div class="layer-file-row-name-box">{{ldf.fileName}}</div>
-                    <div class="layer-row-icon-box cuIcon-upload"  @click="addLayerDataFile(ldf.fileKey)"></div>
+                    <div class="layer-row-icon-box cuIcon-refresh" title="Refresh metadata"  @click="refreshLayerDataFile(ldf.fileKey)"></div>
                     <div class="layer-row-icon-box cuIcon-deletefill"  @click="deleteLayerDataFile(ldf.fileKey)"></div>
                 </div>
             </div>
@@ -202,6 +218,9 @@ ${optionsStr}
 
 
 
+                },
+                async refreshLayerDataFile(fileKey){
+                    await this.addLayerDataFile(fileKey)
                 },
                 parseMEMExml(xml){
 
@@ -403,6 +422,7 @@ ${optionsStr}
                         let layerData = mainPlot.layerDataDict[lf.fileKey].dataSource
                         let metaDataObj = {
                             fileName:lf.fileName,
+                            fileKey:lf.fileKey,
                             type:layerData.columns ?  "tsvStr" : "text",
                             fileData: layerData.columns ? d3.tsvFormat(layerData, layerData.columns) : layerData
                         }
@@ -415,19 +435,25 @@ ${optionsStr}
                     window.open(`/static/xiaochiPlot/src/exampleData.html?type=localStorage&source=metaDataArr`)
 
                 },
-                handleLayerDataFile(d3Data, fileName="", fileKey){
+                normalizeLayerData(d3Data){
+                    if(!d3Data || !d3Data.columns){
+                        mainPlot.showMessageBox("cuIcon-roundclose","File format error!!!","error")
+                        return null
+                    }
 
-
-
-
-                    let col = d3Data.columns
+                    let col = d3Data.columns.map(ele=>ele == null ? "" : ele.toString().trim())
                     const hasDuplicates = col.filter((item, index) => col.indexOf(item) !== index).length > 0;
                     if(hasDuplicates){
                         mainPlot.showMessageBox("cuIcon-roundclose","Duplicate names in first row!","error")
 
-                        return;
+                        return null;
                     }
-                    d3Data =  d3.filter(d3Data,d=>d[d3Data.columns[0]] != null)
+
+                    d3Data.columns = col
+                    d3Data =  d3.filter(d3Data,d=>{
+                        let id = d[d3Data.columns[0]]
+                        return id != null && id.toString().trim() !== ""
+                    })
                     d3Data.columns = col
 
                     //有些人的id列可能是数字,或者有空格
@@ -435,49 +461,347 @@ ${optionsStr}
                         ele[d3Data.columns[0]] = ele[d3Data.columns[0]].toString().trim()
                     })
 
-                    if(typeof fileKey == "string"){
-                        //    更新数据
+                    try {
+                        d3.index(d3Data,ele=>ele[d3Data.columns[0]])
+                    }
+                    catch (e){
+                        mainPlot.showMessageBox("cuIcon-roundclose","Duplicate IDs in first column!","error")
+                        return null;
+                    }
 
-                        console.log("更新数据")
+                    return d3Data
+                },
+                getLayerFileKey(fileName){
+                    return fileName.replaceAll(" ", "_")
+                },
+                getUsedColumnNames(fileKey){
+                    let oldData = mainPlot.layerDataDict[fileKey] && mainPlot.layerDataDict[fileKey].dataSource
+                    let usedColumnNames = new Set()
+                    if(!oldData || !oldData.columns){
+                        return usedColumnNames
+                    }
 
-                        if(fileKey != fileName.replaceAll(" ", "_")){
-                            mainPlot.showMessageBox("cuIcon-roundclose","File name must be the same!!!","error")
+                    this.layerList.forEach(l=>{
+                        if(l.layerDataFlieKey != fileKey){
                             return
                         }
 
-                        try {
-                            mainPlot.layerDataDict[fileKey] = {
-                                dataSource:d3Data,
-                                dataIndex:d3.index(d3Data,ele=>ele[d3Data.columns[0]])
+                        let layerData = this.layerStatistic[l.layerType][l.layerStatisticIndex]
+                        let columnIndexes = layerData.layerDataColumnsIndex || l.layerDataColumns || []
+                        columnIndexes.forEach(columnIndex=>{
+                            if(oldData.columns[columnIndex] != null){
+                                usedColumnNames.add(oldData.columns[columnIndex])
                             }
-                        }
-                        catch (e){
-                            mainPlot.showMessageBox("cuIcon-roundclose","Duplicate IDs in first column!","error")
+                        })
+                    })
 
-                            return;
+                    return usedColumnNames
+                },
+                getLayerCategoryColorMap(layerData){
+                    let categoryColorMap = new Map()
+                    if(!layerData || !layerData.categoryList){
+                        return categoryColorMap
+                    }
+
+                    ;(layerData.categoryList || []).forEach((category,index)=>{
+                        if(layerData.categoryColorList && layerData.categoryColorList[index]){
+                            categoryColorMap.set(category == null ? "" : category.toString(), layerData.categoryColorList[index])
                         }
+                    })
+
+                    this.getLayerCategoryColorControlMaps(layerData).forEach(obj=>{
+                        if(obj.switch && obj.switch.value === false){
+                            return
+                        }
+                        Object.keys(obj).forEach(key=>{
+                            if((layerData.categoryList || []).includes(key) && obj[key] && obj[key].type == "color"){
+                                categoryColorMap.set(key.toString(), obj[key].value)
+                            }
+                        })
+                    })
+                    return categoryColorMap
+                },
+                refreshLayerCategoryColors(d3Data, layerData, oldCategoryColorMap){
+                    if(!layerData || !layerData.categoryList){
+                        return
+                    }
+
+                    let metadataCategoryColorList = this.getMetadataCategoryColorList(d3Data, layerData.categoryList, layerData.layerDataColumnsIndex)
+                    let defaultColors = d3.quantize(d3.interpolateWarm, layerData.categoryList.length)
+
+                    layerData.categoryColorList = layerData.categoryList.map((category,index)=>{
+                        let categoryKey = category == null ? "" : category.toString()
+                        if(oldCategoryColorMap.has(categoryKey)){
+                            return oldCategoryColorMap.get(categoryKey)
+                        }
+                        if(metadataCategoryColorList && metadataCategoryColorList[index]){
+                            return metadataCategoryColorList[index]
+                        }
+                        return defaultColors[index]
+                    })
+
+                    this.syncLayerCategoryColorControls(layerData)
+                },
+                getLayerCategoryColorControlMaps(layerData){
+                    if(!layerData || !layerData.controlData){
+                        return []
+                    }
+
+                    let categoryColorControlNames = new Set([
+                        "Custom color",
+                        "Symbol color",
+                        "Lollipop color",
+                        "Color categories"
+                    ])
+                    let categoryMaps = []
+
+                    const visit = obj=>{
+                        if(!obj || typeof obj != "object"){
+                            return
+                        }
+
+                        Object.keys(obj).forEach(key=>{
+                            let value = obj[key]
+                            if(categoryColorControlNames.has(key) && value && typeof value == "object" && value.switch && !("present" in value && "absent" in value)){
+                                categoryMaps.push(value)
+                            }else if(value && typeof value == "object"){
+                                visit(value)
+                            }
+                        })
+                    }
+
+                    visit(layerData.controlData)
+                    return categoryMaps
+                },
+                syncLayerCategoryColorControls(layerData){
+                    if(!layerData || !layerData.categoryList || !layerData.categoryColorList){
+                        return
+                    }
+
+                    this.getLayerCategoryColorControlMaps(layerData).forEach(obj=>{
+                        let switchControl = obj.switch
+                        let colorTemplate = Object.keys(obj).map(key=>obj[key]).find(ele=>ele && ele.type == "color")
+                        let nextObj = {switch:switchControl}
+
+                        layerData.categoryList.forEach((category,index)=>{
+                            let categoryKey = category == null ? "" : category.toString()
+                            if(obj[categoryKey] && obj[categoryKey].type == "color"){
+                                nextObj[categoryKey] = obj[categoryKey]
+                            }else if(colorTemplate){
+                                nextObj[categoryKey] = {
+                                    type:"color",
+                                    value:layerData.categoryColorList[index],
+                                    isSvgAttr:colorTemplate.isSvgAttr
+                                }
+                            }else {
+                                nextObj[categoryKey] = {
+                                    type:"color",
+                                    value:layerData.categoryColorList[index],
+                                    isSvgAttr:false
+                                }
+                            }
+
+                            if(nextObj[categoryKey] && nextObj[categoryKey].type == "color"){
+                                nextObj[categoryKey].value = layerData.categoryColorList[index]
+                            }
+                        })
+
+                        Object.keys(obj).forEach(key=>delete obj[key])
+                        Object.assign(obj,nextObj)
+                    })
+                },
+                sanitizeInvalidSvgAttrControls(obj){
+                    if(!obj || typeof obj != "object"){
+                        return
+                    }
+
+                    const validSvgAttrName = /^[A-Za-z_][A-Za-z0-9_.:-]*$/
+                    Object.keys(obj).forEach(key=>{
+                        let value = obj[key]
+                        if(value && typeof value == "object"){
+                            if(value.isSvgAttr && !validSvgAttrName.test(key)){
+                                delete obj[key]
+                                return
+                            }
+                            this.sanitizeInvalidSvgAttrControls(value)
+                        }
+                    })
+                },
+                getLeafLabelColumnIndexes(fileKey){
+                    let columnIndexes = new Set()
+                    let leafLabelLayerTypes = ["modify leaves name", "append leaves name", "append superscript to leaves name"]
+
+                    leafLabelLayerTypes.forEach(layerType=>{
+                        ;(this.layerStatistic[layerType] || []).forEach(layerData=>{
+                            if(layerData.layerDataFlieKey != fileKey || !layerData.isShowObj || !layerData.isShowObj.isShow){
+                                return
+                            }
+
+                            ;(layerData.layerDataColumnsIndex || []).forEach(columnIndex=>columnIndexes.add(columnIndex))
+                        })
+                    })
+
+                    return Array.from(columnIndexes)
+                },
+                getLayerDataAliasColumnIndexes(d3Data, fileKey){
+                    return this.getLeafLabelColumnIndexes(fileKey).filter(columnIndex=>d3Data.columns[columnIndex] != null)
+                },
+                createLayerDataIndex(d3Data, fileKey){
+                    let dataIndex = d3.index(d3Data,ele=>ele[d3Data.columns[0]])
+
+                    this.getLayerDataAliasColumnIndexes(d3Data, fileKey).forEach(columnIndex=>{
+                        let columnName = d3Data.columns[columnIndex]
+                        if(columnName == null){
+                            return
+                        }
+
+                        d3Data.forEach(row=>{
+                            let alias = row[columnName]
+                            if(alias == null){
+                                return
+                            }
+
+                            alias = alias.toString().trim()
+                            if(alias === ""){
+                                return
+                            }
+
+                            if(dataIndex.has(alias) && dataIndex.get(alias) !== row){
+                                return
+                            }
+
+                            dataIndex.set(alias, row)
+                        })
+                    })
+
+                    return dataIndex
+                },
+                getRefreshLayerSnapshot(fileKey){
+                    return this.layerList.filter(l=>l.layerDataFlieKey == fileKey).map(l=>{
+                        let layerData = this.layerStatistic[l.layerType][l.layerStatisticIndex]
+                        return {
+                            listItem:l,
+                            layerData:layerData,
+                            layerDataColumns:l.layerDataColumns ? [...l.layerDataColumns] : l.layerDataColumns,
+                            layerDataColumnsIndex:layerData.layerDataColumnsIndex ? [...layerData.layerDataColumnsIndex] : layerData.layerDataColumnsIndex,
+                            categoryList:layerData.categoryList ? [...layerData.categoryList] : layerData.categoryList,
+                            categoryColorList:layerData.categoryColorList ? [...layerData.categoryColorList] : layerData.categoryColorList,
+                            controlData:JSON.parse(JSON.stringify(layerData.controlData || {}))
+                        }
+                    })
+                },
+                restoreRefreshLayerSnapshot(layerSnapshots){
+                    layerSnapshots.forEach(snapshot=>{
+                        snapshot.listItem.layerDataColumns = snapshot.layerDataColumns
+                        snapshot.layerData.layerDataColumnsIndex = snapshot.layerDataColumnsIndex
+                        snapshot.layerData.categoryList = snapshot.categoryList
+                        snapshot.layerData.categoryColorList = snapshot.categoryColorList
+                        snapshot.layerData.controlData = snapshot.layerData.controlData || {}
+                        Object.keys(snapshot.layerData.controlData || {}).forEach(key=>delete snapshot.layerData.controlData[key])
+                        Object.assign(snapshot.layerData.controlData, snapshot.controlData)
+                    })
+                },
+                refreshLayerDataIndex(fileKey){
+                    if(!fileKey || !mainPlot.layerDataDict[fileKey]){
+                        return
+                    }
+
+                    let d3Data = mainPlot.layerDataDict[fileKey].dataSource
+                    if(!d3Data || !d3Data.columns){
+                        return
+                    }
+
+                    mainPlot.layerDataDict[fileKey].dataIndex = this.createLayerDataIndex(d3Data, fileKey)
+                },
+                refreshExistingLayerDataFile(d3Data, fileName, fileKey){
+                    console.log("refresh metadata")
+
+                    let usedColumnNames = this.getUsedColumnNames(fileKey)
+                    let missingColumnNames = Array.from(usedColumnNames).filter(columnName=>!d3Data.columns.includes(columnName))
+                    if(missingColumnNames.length > 0){
+                        mainPlot.showMessageBox("cuIcon-roundclose",`Missing columns in refreshed metadata: ${missingColumnNames.join(", ")}`,"error")
+                        return false
+                    }
+
+                    let oldData = mainPlot.layerDataDict[fileKey].dataSource
+                    let oldLayerDataDictEntry = mainPlot.layerDataDict[fileKey]
+                    let layerSnapshots = this.getRefreshLayerSnapshot(fileKey)
+                    let newColumnIndexByName = new Map(d3Data.columns.map((columnName,index)=>[columnName,index]))
+                    let layerColorMapByKey = new Map()
+
+                    try {
                         this.layerList.forEach(l=>{
-                            console.log("l.layerDataFlieKey",l,l.layerDataFlieKey,fileKey)
+                            if(l.layerDataFlieKey != fileKey){
+                                return
+                            }
 
+                            let layerData = this.layerStatistic[l.layerType][l.layerStatisticIndex]
+                            let currentIndexes = layerData.layerDataColumnsIndex || l.layerDataColumns || []
+                            let reboundIndexes = currentIndexes.map(columnIndex=>{
+                                let columnName = oldData.columns[columnIndex]
+                                return newColumnIndexByName.has(columnName) ? newColumnIndexByName.get(columnName) : columnIndex
+                            })
+
+                            layerData.layerDataColumnsIndex = reboundIndexes
+                            l.layerDataColumns = reboundIndexes
+                            layerColorMapByKey.set(l, this.getLayerCategoryColorMap(layerData))
+                        })
+
+                        mainPlot.layerDataDict[fileKey] = {
+                            dataSource:d3Data,
+                            dataIndex:this.createLayerDataIndex(d3Data, fileKey)
+                        }
+
+                        this.layerList.forEach(l=>{
                             if(l.layerDataFlieKey == fileKey){
-                                //更新图层控制属性
                                 let layerData = this.layerStatistic[l.layerType][l.layerStatisticIndex]
-                                console.log(layerData)
                                 if(layerData.otherData.updateFunction){
                                     layerData.otherData.updateFunction(d3Data, layerData)
                                 }
+                                this.refreshLayerCategoryColors(d3Data, layerData, layerColorMapByKey.get(l) || new Map())
+                                this.sanitizeInvalidSvgAttrControls(layerData.controlData)
                             }
                         })
+
                         if(fileKey == this.currentLayerDataFlieKey[0]){
                             this.selectLayerFile(fileKey)
                         }
-                        mainPlot.showMessageBox("cuIcon-roundcheck","File updated!","success")
                         mainPlot.init()
-                        console.log(this.layerDataFlieList)
+                    }
+                    catch (e) {
+                        console.log(e)
+                        mainPlot.layerDataDict[fileKey] = oldLayerDataDictEntry
+                        this.restoreRefreshLayerSnapshot(layerSnapshots)
+
+                        if(fileKey == this.currentLayerDataFlieKey[0]){
+                            this.selectLayerFile(fileKey)
+                        }
+                        mainPlot.showMessageBox("cuIcon-roundclose",`Metadata refresh failed: ${e.message}`,"error")
+                        try {
+                            mainPlot.init()
+                        } catch (oldInitError) {
+                            console.log(oldInitError)
+                        }
+                        return false
+                    }
+                    mainPlot.showMessageBox("cuIcon-roundcheck","Metadata refreshed!","success")
+                    console.log(this.layerDataFlieList)
+                    return true
+                },
+                handleLayerDataFile(d3Data, fileName="", fileKey){
+
+
+                    d3Data = this.normalizeLayerData(d3Data)
+                    if(!d3Data){
                         return;
                     }
 
-                    fileKey = fileName.replaceAll(" ", "_");
+                    if(typeof fileKey == "string" && fileKey in mainPlot.layerDataDict){
+                        this.refreshExistingLayerDataFile(d3Data, fileName, fileKey)
+                        return;
+                    }
+
+                    fileKey = typeof fileKey == "string" ? fileKey : this.getLayerFileKey(fileName);
 
                     if(fileKey in mainPlot.layerDataDict){
                         console.log("file name duplicate")
@@ -522,7 +846,7 @@ ${optionsStr}
                         })
                         mainPlot.layerDataDict[fileKey] = {
                             dataSource:d3Data,
-                            dataIndex:d3.index(d3Data,ele=>ele[d3Data.columns[0]])
+                            dataIndex:this.createLayerDataIndex(d3Data, fileKey)
                         }
 
                     }catch (e) {
@@ -879,6 +1203,7 @@ ${optionsStr}
 
                             this.currentChenkedColumns=[]
 
+                            this.refreshLayerDataIndex(layerListItem.layerDataFlieKey)
                             mainPlot.init()
 
                             return;
@@ -925,6 +1250,7 @@ ${optionsStr}
 
                     this.currentChenkedColumns=[]
 
+                    this.refreshLayerDataIndex(this.layerList[this.layerList.length - 1].layerDataFlieKey)
                     mainPlot.init()
                     // this.isLayerDataChooseBoxShow = false
                     this.isShowModal = false
