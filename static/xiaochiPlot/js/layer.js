@@ -724,6 +724,82 @@ ${optionsStr}
 
                     return bool
                 },
+                getPairedColorColumn(dataSource, columnName){
+                    if(!dataSource || !dataSource.columns || !columnName){
+                        return null
+                    }
+
+                    let exactNames = [`${columnName}_colour`, `${columnName}_color`]
+                    let exactMatch = exactNames.find(name=>dataSource.columns.includes(name))
+                    if(exactMatch){
+                        return exactMatch
+                    }
+
+                    exactMatch = dataSource.columns.find(col=>exactNames.includes(col.trim()))
+                    if(exactMatch){
+                        return exactMatch
+                    }
+
+                    let lowerNames = exactNames.map(name=>name.toLowerCase())
+                    return dataSource.columns.find(col=>lowerNames.includes(col.trim().toLowerCase())) || null
+                },
+                getMetadataCategoryColorList(dataSource, categoryList, selectedColumnIndexes){
+                    if(!dataSource || !dataSource.columns || !categoryList || categoryList.length == 0){
+                        return null
+                    }
+
+                    selectedColumnIndexes = selectedColumnIndexes || []
+                    let defaultColors = d3.quantize(d3.interpolateWarm, categoryList.length)
+                    let categoryColorMap = new Map()
+                    let hasColorColumn = false
+                    let hasValidColor = false
+                    let hasConflict = false
+
+                    selectedColumnIndexes.forEach(columnIndex=>{
+                        let columnName = dataSource.columns[columnIndex]
+                        let colorColumnName = this.getPairedColorColumn(dataSource, columnName)
+                        if(!colorColumnName){
+                            return
+                        }
+
+                        hasColorColumn = true
+                        dataSource.forEach(row=>{
+                            let category = row[columnName]
+                            let colorValue = row[colorColumnName]
+                            if(category == null || colorValue == null || colorValue === ""){
+                                return
+                            }
+
+                            colorValue = colorValue.toString().trim()
+                            let color = d3.color(colorValue)
+                            if(!color){
+                                return
+                            }
+
+                            hasValidColor = true
+                            let categoryKey = category.toString()
+                            if(categoryColorMap.has(categoryKey) && d3.color(categoryColorMap.get(categoryKey)).toString() != color.toString()){
+                                hasConflict = true
+                                return
+                            }
+
+                            categoryColorMap.set(categoryKey, colorValue)
+                        })
+                    })
+
+                    if(hasConflict){
+                        mainPlot.showMessageBox("cuIcon-infofill","Conflicting metadata colours found; using the first colour for each category.","warning")
+                    }
+
+                    if(!hasColorColumn || !hasValidColor){
+                        return null
+                    }
+
+                    return categoryList.map((category, index)=>{
+                        let categoryKey = category == null ? "" : category.toString()
+                        return categoryColorMap.get(categoryKey) || defaultColors[index]
+                    })
+                },
 
                 addDataLyerSubmit(e,layerStatistic, layerListItem){
                     let layerType = this.layerTypeList[this.layerTypeIndex]
@@ -809,7 +885,8 @@ ${optionsStr}
                         }
 
 
-                        this.addLayerStatistic(categoryList, controlData, otherData, legendDragData)
+                        let metadataCategoryColorList = this.getMetadataCategoryColorList(dataSource, categoryList, this.currentChenkedColumns)
+                        this.addLayerStatistic(categoryList, controlData, otherData, legendDragData, undefined, undefined, metadataCategoryColorList)
                     }
                 },
 
