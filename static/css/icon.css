@@ -1,0 +1,40 @@
+@keyframes cuIcon-spin {
+  0% {
+    -webkit-transform: rotate(0);
+    transform: rotate(0);
+  }
+
+  100% {
+    -webkit-transform: rotate(359deg);
+    transform: rotate(359deg);
+  }
+}
+
+.iconfont-spin {
+  -webkit-animation: cuIcon-spin 2s infinite linear;
+  animation: cuIcon-spin 2s infinite linear;
+  display: inline-block;
+}
+
+.iconfont-pulse {
+  -webkit-animation: cuIcon-spin 1s infinite steps(8);
+  animation: cuIcon-spin 1s infinite steps(8);
+  display: inline-block;
+}
+
+@font-face {
+  font-family: "cuIcon";
+  src: url("/static/font/cuIcon.eot");
+  src: url("/static/font/cuIcon.eot?#iefix") format("embedded-opentype"),
+       url("/static/font/cuIcon.woff") format("woff"),
+       url("/static/font/cuIcon.ttf") format("truetype"),
+       url("/static/font/cuIcon.svg#cuIcon") format("svg");
+}
+
+[class*="cuIcon-"] {
+  font-family: "cuIcon" !important;
+  font-size: inherit;
+  font-style: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

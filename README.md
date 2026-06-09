@@ -1,50 +1,65 @@
-# TVBOT
-# Beautify the phylogenetic tree using one Excel sheet only
+# TVBOT Local Offline Build
 
-tvBOT showed significant advantages in tree annotation compared with other tools. First, it is highly efficient in data preparation, without the requirment of redundant data such as style data. Tree annotation in tvBOT is powered by a data-driven engine that only requires effective data organized in uniform formats saved as one Microsoft Excel sheet, TSV, or CSV file. A layer manager is developed to manage annotation dataset layers, allowing the addition of a specific layer by selecting the columns of the corresponding annotation data file. These characteristics reduce the learning cost and improve the data preparation efficiency. Second, it renders style adjustments in real-time and diversified ways. All style adjustments related to each annotation dataset can be executed on a highly interactive user interface, also available for mobile devices. In response to adjusting style parameters, the display engine allows the update and rendering of the changes in real time. In addition, tvBOT supports the combination display of 25 annotation dataset types to achieve multiple formats for tree annotations. It is open to all users and freely available at: [https://www.chiplot.online/tvbot.html](https://www.chiplot.online/tvbot.html).
+This repository is a modified local/offline-friendly version of the original
+TVBOT project by Xie et al. The original project is available at:
 
-# Tree visualization workflow in TVBOT
+- https://github.com/1996xjm/TVBOT
+- https://www.chiplot.online/tvbot.html
 
-<center><img src="https://1996xjm.github.io/tvbot/img/workflow.jpg" alt="canvasSetting-1" style="width:75%;" /></center>
+The changes in this copy are focused on making the tree editor pages practical
+to run from a local static file server. This is not an official upstream TVBOT
+release.
 
-- **(1)** Import a tree file in various formats.
-- **(2)** Adjust the tree structure and basic styles.
-- **(3)** Organize annotation data in one or multiple tables and upload.
-- **(4)** Add annotation dataset layers using corresponding data columns.
-- **(5)** Execute style adjustments for each annotation dataset layer.
-- **(6)** Export figure and save drawing state.
+## What Was Changed
 
+- Added root-level HTML entry points so `python3 -m http.server` can serve the
+  app directly from the repository root.
+- Added local static copies of required JavaScript, CSS, fonts, icons, and
+  example assets.
+- Replaced CDN/runtime library references with local files under
+  `/static/vendor`.
+- Fixed missing `cuIcon-*` icon glyph mappings.
+- Added local API stubs for endpoints used by the browser app.
+- Replaced the original online `tvbot.html` page with a simple offline launcher.
+- Disabled outbound analytics/help/video links that interfere with offline use.
 
-#### Example file for annotation dataset layer:
+## Run Locally
 
-<p><div style="display:flex;"><img src="https://1996xjm.github.io/tvbot/tree_annotation/img/exampleDatasetLayerFile.jpg" alt="canvasSetting-1" style="width:100%;" /></div></p>
+From the repository root:
 
-- **(1)** The first column of each dataset layer data file must be node IDs which are identical with [tree file](https://1996xjm.github.io/chitree/user_interface/attribute_main/data.html).
+```bash
+python3 -m http.server 8080
+```
 
-- **(2)** New name for dataset layer `modify leaves name`.
+Then open:
 
-- **(3)** Categories for dataset layer `color block of leaves name`.
+```text
+http://localhost:8080/tvbot.html
+```
 
-- **(4)** Categories for dataset layer `add symbol`.
+The launcher links to:
 
-- **(5)** Data for dataset layer `heatmap`.
+- `http://localhost:8080/normalTree.html`
+- `http://localhost:8080/circleTree.html`
+- `http://localhost:8080/unrootedTree.html`
 
-- **(6)** Data for dataset layer `base bar plot`.
+You can also open those editor pages directly.
 
-#### Corresponding figure: [View Tree](https://www.chiplot.online/normalTree.html?originalJsonDataUri=/static/xiaochiPlot/gallery/normalTree/Fig4c-s41467-022-31113-w.json)
+## Current Scope
 
-<p><div style="display:flex;"><img src="https://1996xjm.github.io/tvbot/tree_annotation/img/exampleTreeFigure.jpg" alt="canvasSetting-1" style="width:100%;" /></div></p>
+This build is intended for local interactive use of the TVBOT tree editors. The
+cloud gallery, online documentation, account features, analytics, and remote
+save/load behavior are intentionally not part of this local build.
 
-- Color blocks are added to label different Phylum.
-- Two columns of symbols are added to distinguish different OTUs type.
-- White and blue heatmap represents differences in relative abundance among fertilisation treatments.
-- Green bar graph represents relative abundance of OTUs with a maximum value of 29.2%.
+Known limitation: the editor may log a non-blocking `TypeError: i is not
+iterable` from the original app's tree data handling path. The sample trees
+still render in local testing.
 
-**Reference:** Fig. 4c Cultivation-dependent coverage of OTUs in xylem. ([Zhang, L., Zhang, M., Huang, S. et al., 2022](https://doi.org/10.1038/s41467-022-31113-w))
+## Original Citation
 
-# Citation
+If you use TVBOT in research, cite the original paper:
 
-If you use tvBOT in your research, please cite this paper:
-
-> Xie, J., Chen, Y., Cai, G., Cai, R., Hu, Z., & Wang, H. (2023). Tree Visualization By One Table (tvBOT): a web application for visualizing, modifying and annotating phylogenetic trees. Nucleic Acids Research, gkad359. https://doi.org/10.1093/nar/gkad359
-
+> Xie, J., Chen, Y., Cai, G., Cai, R., Hu, Z., & Wang, H. (2023). Tree
+> Visualization By One Table (tvBOT): a web application for visualizing,
+> modifying and annotating phylogenetic trees. Nucleic Acids Research, gkad359.
+> https://doi.org/10.1093/nar/gkad359
