@@ -22,6 +22,27 @@ Category labels are data values, not SVG attribute names. Values such as `6-12` 
 
 Inactive custom color controls often contain default grey values. Do not use those inactive controls as authoritative colors during metadata refresh.
 
+## Reusing Layers/Params Across Trees
+
+Annotation layers and style params (`layerList`, `layerDataDict`, per-layer
+`controlData`) are set up once when the page's Vue app mounts and are not
+tied to the currently loaded tree. Loading a different tree file mid-session
+via the treefile "select file" control (`onLoadNewFile` in `mainTree.min.js`)
+does not reset them — so the same layer configuration and metadata table can
+be reused across trees with different leaf sets without rebuilding anything.
+
+Leaf-name matching (`createLayerDataIndex` in `layer.js`) is a plain
+string-key lookup that already tolerates mismatched leaf sets: a tree leaf
+with no matching row renders blank, and unmatched extra rows are simply
+never looked up. No rebinding step is needed on the tree side, unlike the
+metadata-table side (see "Metadata Refresh" above).
+
+`onLoadNewFile`'s mid-session ("local") branch resets
+`styleData.rootNodeIndex` and `styleData.reverseChildrenList`, and now also
+resets `styleData.collapseCladeList` and `styleData.deleteWholeCladeList`, so
+clade collapse/delete edits made against the previous tree's node indices
+don't leak into a newly loaded tree.
+
 ## Validation
 
 Metadata refresh should reject:
